@@ -756,7 +756,7 @@ CSS = """
 .speaker-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 4px; }
 .ssml-template-btn { font-size: 12px; padding: 4px 8px; }
 textarea[data-testid="textbox"] { min-height: 60px !important; }
-.gpu-bar { background: #1a1a2e; color: #0f0; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 13px; width: 100%; }
+.gpu-bar { background: #f0f0f0; color: #333; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 13px; width: 100%; }
 """
 
 with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft()) as demo:
