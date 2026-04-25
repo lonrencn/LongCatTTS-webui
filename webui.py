@@ -639,18 +639,14 @@ def generate_voice_clone(
         max_duration_sec=max_duration,
     )
 
-    # 后处理
-    wav = adjust_speed(wav, sr, speed)
+    # 后处理（克隆模式保持原始质量，不做语速调整）
     if do_trim:
         wav = trim_silence(wav)
     if do_agc:
         wav = apply_agc(wav)
     wav = adjust_volume(wav, volume)
 
-    if target_sr != sr:
-        wav = librosa.resample(wav, orig_sr=sr, target_sr=target_sr)
-        sr = target_sr
-
+    # 克隆模式不重采样，保持模型原始采样率
     return (sr, wav)
 
 
@@ -917,7 +913,8 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                                 "1. 上传 3-15 秒参考音频\n"
                                 "2. 输入参考音频文字\n"
                                 "3. 输入合成文本\n"
-                                "4. 建议 APG + 3.5B 效果最佳")
+                                "4. 建议 **APG + 3.5B + 32步** 效果最佳\n"
+                                "5. 参考音频越清晰，克隆效果越好")
                     with gr.Row():
                         vc_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
                     with gr.Row():
