@@ -13,6 +13,7 @@ import gradio as gr
 import librosa
 import numpy as np
 import torch
+import torchaudio
 import soundfile as sf
 
 # Register audiodit
@@ -22,6 +23,102 @@ from audiodit import AudioDiTModel
 from transformers import AutoTokenizer
 
 torch.backends.cudnn.benchmark = False
+
+# ─── SenseVoice ASR (lazy load) ────────────────────────────
+_asr_model = None
+
+
+def get_asr_model():
+    global _asr_model
+    if _asr_model is None:
+        from funasr import AutoModel
+        print("Loading SenseVoice ASR model ...")
+        _asr_model = AutoModel(
+            model="iic/SenseVoiceSmall",
+            vad_model="iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+            vad_kwargs={"max_single_segment_time": 30000},
+            trust_remote_code=True,
+        )
+        print("SenseVoice ASR model loaded.")
+    return _asr_model
+
+
+# ASR emoji processing (from official SenseVoice webui)
+_emoji_dict = {
+    "<|nospeech|><|Event_UNK|>": "",
+    "<|zh|>": "", "<|en|>": "", "<|yue|>": "", "<|ja|>": "", "<|ko|>": "",
+    "<|nospeech|>": "",
+    "<|HAPPY|>": "", "<|SAD|>": "", "<|ANGRY|>": "", "<|NEUTRAL|>": "",
+    "<|FEARFUL|>": "", "<|DISGUSTED|>": "", "<|SURPRISED|>": "",
+    "<|BGM|>": "", "<|Speech|>": "", "<|Applause|>": "", "<|Laughter|>": "",
+    "<|Cry|>": "", "<|Sneeze|>": "", "<|Breath|>": "", "<|Cough|>": "",
+    "<|Sing|>": "", "<|Speech_Noise|>": "", "<|withitn|>": "", "<|woitn|>": "",
+    "<|GBG|>": "", "<|Event_UNK|>": "", "<|EMO_UNKNOWN|>": "",
+}
+
+_emo_dict = {"<|HAPPY|>": "", "<|SAD|>": "", "<|ANGRY|>": "", "<|NEUTRAL|>": "",
+             "<|FEARFUL|>": "", "<|DISGUSTED|>": "", "<|SURPRISED|>": ""}
+_event_dict = {"<|BGM|>": "", "<|Speech|>": "", "<|Applause|>": "", "<|Laughter|>": "",
+               "<|Cry|>": "", "<|Sneeze|>": "", "<|Breath|>": "", "<|Cough|>": ""}
+_emo_set = {"😊", "😔", "😡", "😰", "🤢", "😮"}
+_event_set = {"🎼", "👏", "😀", "😭", "🤧", "😷"}
+_lang_dict = {"<|zh|>": "<|lang|>", "<|en|>": "<|lang|>", "<|yue|>": "<|lang|>",
+              "<|ja|>": "<|lang|>", "<|ko|>": "<|lang|>", "<|nospeech|>": "<|lang|>"}
+
+
+def _format_str_v2(s):
+    sptk_dict = {}
+    for sptk in _emoji_dict:
+        sptk_dict[sptk] = s.count(sptk)
+        s = s.replace(sptk, _emoji_dict[sptk])
+    emo = "<|NEUTRAL|>"
+    for e in _emo_dict:
+        if sptk_dict.get(e, 0) > sptk_dict.get(emo, 0):
+            emo = e
+    for e in _event_dict:
+        if sptk_dict.get(e, 0) > 0:
+            s = _event_dict[e] + s
+    s = s + _emo_dict.get(emo, "")
+    for emoji in _emo_set.union(_event_set):
+        s = s.replace(" " + emoji, emoji)
+        s = s.replace(emoji + " ", emoji)
+    return s.strip()
+
+
+def _clean_asr_text(s):
+    """清理 ASR 输出的特殊标记，返回纯文本"""
+    s = s.replace("<|nospeech|><|Event_UNK|>", "")
+    for lang in _lang_dict:
+        s = s.replace(lang, "<|lang|>")
+    s_list = [_format_str_v2(si).strip() for si in s.split("<|lang|>")]
+    new_s = " ".join(sl for sl in s_list if sl)
+    # 去掉 emoji
+    new_s = re.sub(r'[😊😔😡😰🤢😮🎼👏😀😭🤧😷❓]', '', new_s)
+    return new_s.strip()
+
+
+def transcribe_audio(audio_input) -> str:
+    """ASR: 音频转文本"""
+    if audio_input is None:
+        return ""
+    try:
+        asr = get_asr_model()
+        fs, wav = audio_input
+        wav = wav.astype(np.float32)
+        if np.abs(wav).max() > 1.0:
+            wav = wav / np.iinfo(np.int16).max
+        if len(wav.shape) > 1:
+            wav = wav.mean(-1)
+        if fs != 16000:
+            resampler = torchaudio.transforms.Resample(fs, 16000)
+            wav = resampler(torch.from_numpy(wav).to(torch.float32)[None, :])[0, :].numpy()
+        result = asr.generate(input=wav, cache={}, language="auto", use_itn=True, batch_size_s=60, merge_vad=True)
+        text = result[0]["text"]
+        text = _clean_asr_text(text)
+        return text
+    except Exception as e:
+        print(f"ASR error: {e}")
+        return f"[ASR识别失败: {e}]"
 
 MAX_SEED = 2**32 - 1
 EN_DUR_PER_CHAR = 0.082
@@ -721,9 +818,20 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 with gr.Column():
                     vc_prompt_audio = gr.Audio(label="参考音频（3-15秒，wav/mp3）", type="numpy")
                     vc_prompt_text = gr.Textbox(
-                        label="参考音频文本",
+                        label="参考音频文本（上传音频后自动识别）",
                         lines=2,
-                        placeholder="参考音频对应的文字内容...",
+                        placeholder="上传参考音频后自动填充，也可手动修改...",
+                    )
+                    vc_asr_btn = gr.Button("🔤 自动识别音频文本", size="sm")
+                    vc_asr_btn.click(
+                        fn=transcribe_audio,
+                        inputs=[vc_prompt_audio],
+                        outputs=[vc_prompt_text],
+                    )
+                    vc_prompt_audio.change(
+                        fn=transcribe_audio,
+                        inputs=[vc_prompt_audio],
+                        outputs=[vc_prompt_text],
                     )
                     vc_text = gr.Textbox(
                         label="合成文本",
