@@ -708,9 +708,9 @@ def generate_dialog(
     do_trim: bool,
     do_agc: bool,
     max_duration: float,
-    role_a_mode: str, role_a_seed, role_a_audio, role_a_prompt_text: str,
-    role_b_mode: str, role_b_seed, role_b_audio, role_b_prompt_text: str,
-    role_c_mode: str, role_c_seed, role_c_audio, role_c_prompt_text: str,
+    role_a_audio, role_a_prompt_text: str,
+    role_b_audio, role_b_prompt_text: str,
+    role_c_audio, role_c_prompt_text: str,
 ):
     """多角色对话生成"""
     if not dialog_text or not dialog_text.strip():
@@ -731,18 +731,18 @@ def generate_dialog(
 
     # 角色配置
     roles = {
-        'A': {'mode': role_a_mode, 'seed': int(role_a_seed) if role_a_seed else 100, 'audio': role_a_audio, 'text': role_a_prompt_text},
-        'B': {'mode': role_b_mode, 'seed': int(role_b_seed) if role_b_seed else 200, 'audio': role_b_audio, 'text': role_b_prompt_text},
-        'C': {'mode': role_c_mode, 'seed': int(role_c_seed) if role_c_seed else 300, 'audio': role_c_audio, 'text': role_c_prompt_text},
+        'A': {'audio': role_a_audio, 'text': role_a_prompt_text},
+        'B': {'audio': role_b_audio, 'text': role_b_prompt_text},
+        'C': {'audio': role_c_audio, 'text': role_c_prompt_text},
     }
 
     # 获取模型采样率
     model, _ = get_model(model_name)
     model_sr = model.config.sampling_rate
 
-    # 预处理克隆角色的参考音频
+    # 预处理角色的参考音频
     for role_id, role in roles.items():
-        if role['mode'] == '克隆' and role['audio'] is not None:
+        if role['audio'] is not None:
             input_sr, audio_np = role['audio']
             if audio_np.dtype != np.float32:
                 audio_np = audio_np.astype(np.float32) / np.iinfo(np.int16).max
@@ -767,30 +767,22 @@ def generate_dialog(
         text_clean = auto_convert_numbers(preprocess_text(text), number_mode)
 
         try:
-            if role['mode'] == '克隆' and role['prompt_wav'] is not None and role['text']:
+            if role['prompt_wav'] is not None and role['text']:
                 sr, wav = generate_tts_core(
                     text=text_clean,
                     model_name=model_name,
                     guidance_method='apg',
                     nfe=nfe,
                     guidance_strength=guidance_strength,
-                    seed=role['seed'],
+                    seed=base_seed,
                     prompt_audio_wav=role['prompt_wav'],
                     prompt_text=role['text'],
                     max_duration_sec=max_duration,
                 )
             else:
-                sr, wav = generate_tts_core(
-                    text=text_clean,
-                    model_name=model_name,
-                    guidance_method=guidance_method,
-                    nfe=nfe,
-                    guidance_strength=guidance_strength,
-                    seed=role['seed'],
-                    max_duration_sec=max_duration,
-                )
+                raise gr.Error(f"角色 {role_id} 未定义参考音频或文本")
             all_wav.append(wav)
-            mode_tag = "克隆" if role['mode'] == '克隆' else f"seed={role['seed']}"
+            mode_tag = "克隆"
             info_lines.append(f"{role_id}: {text[:20]}{'...' if len(text)>20 else ''} ({mode_tag})")
         except Exception as e:
             info_lines.append(f"{role_id}: ❌ {e}")
@@ -1023,33 +1015,24 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
 
         # ═══ Tab 3: 多角色对话 ═══
         with gr.Tab("🎭 多角色对话"):
-            gr.Markdown("### 角色定义\n定义最多3个角色的音色。\n\n⚠️ **LongCat 不支持通过seed控制音色**，纯TTS模式每次生成的音色都是随机的。\n**建议用克隆模式**：上传3-5秒参考音频来定义角色音色，这样同一角色在所有台词中音色一致。")
+            gr.Markdown("### 角色定义\n每个角色需上传 3-15 秒参考音频来定义音色，同一角色在所有台词中保持相同音色。")
             with gr.Row():
-                # 角色 A
                 with gr.Column(scale=1):
                     gr.Markdown("**🅰️ 角色 A**")
-                    role_a_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
-                    role_a_seed = gr.Number(label="Seed", value=100, precision=0, visible=True)
-                    role_a_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
-                    role_a_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_a_audio = gr.Audio(label="参考音频", type="numpy")
+                    role_a_text = gr.Textbox(label="参考音频文本", placeholder="参考音频对应文字...")
                     role_a_test_btn = gr.Button("🔊 试听A", size="sm")
                     role_a_test_out = gr.Audio(label="试听", type="numpy")
-                # 角色 B
                 with gr.Column(scale=1):
                     gr.Markdown("**🅱️ 角色 B**")
-                    role_b_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
-                    role_b_seed = gr.Number(label="Seed", value=200, precision=0, visible=True)
-                    role_b_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
-                    role_b_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_b_audio = gr.Audio(label="参考音频", type="numpy")
+                    role_b_text = gr.Textbox(label="参考音频文本", placeholder="参考音频对应文字...")
                     role_b_test_btn = gr.Button("🔊 试听B", size="sm")
                     role_b_test_out = gr.Audio(label="试听", type="numpy")
-                # 角色 C
                 with gr.Column(scale=1):
                     gr.Markdown("**🅲 角色 C**")
-                    role_c_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
-                    role_c_seed = gr.Number(label="Seed", value=300, precision=0, visible=True)
-                    role_c_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
-                    role_c_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_c_audio = gr.Audio(label="参考音频", type="numpy")
+                    role_c_text = gr.Textbox(label="参考音频文本", placeholder="参考音频对应文字...")
                     role_c_test_btn = gr.Button("🔊 试听C", size="sm")
                     role_c_test_out = gr.Audio(label="试听", type="numpy")
 
@@ -1070,47 +1053,30 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                 batch_clear_btn.click(clear_vram, outputs=batch_gpu)
 
-            # 角色模式切换
-            def toggle_role_mode(mode):
-                is_clone = mode == "克隆"
-                return gr.Number(visible=not is_clone), gr.Audio(visible=is_clone), gr.Textbox(visible=is_clone)
-            role_a_mode.change(toggle_role_mode, role_a_mode, [role_a_seed, role_a_audio, role_a_text])
-            role_b_mode.change(toggle_role_mode, role_b_mode, [role_b_seed, role_b_audio, role_b_text])
-            role_c_mode.change(toggle_role_mode, role_c_mode, [role_c_seed, role_c_audio, role_c_text])
-
             # 试听按钮
-            def test_role_voice(mode, seed_val, audio, text, model_name):
+            def test_role_voice(audio, text, model_name):
                 try:
-                    if mode == "克隆":
-                        if audio is None:
-                            raise gr.Error("请上传参考音频")
-                        if not text or not text.strip():
-                            raise gr.Error("请输入参考音频文本")
-                        (result, _) = generate_voice_clone(
-                            "这是试听音频，测试一下音色效果。", text, audio, model_name,
-                            "apg", 16, 4.0, int(seed_val) if seed_val else 1024,
-                            "auto", 50, 50, 24000, "wav", True, False, 30.0,
-                        )
-                        return result
-                    else:
-                        (result, _) = generate_tts(
-                            "这是试听音频，测试一下音色效果。", model_name,
-                            "cfg", 16, 4.0, int(seed_val) if seed_val else 1024,
-                            "auto", False, True, True, False,
-                            50, 50, 24000, "wav", True, False, 30.0,
-                        )
-                        return result
+                    if audio is None:
+                        raise gr.Error("请上传参考音频")
+                    if not text or not text.strip():
+                        raise gr.Error("请输入参考音频文本")
+                    (result, _) = generate_voice_clone(
+                        "这是试听音频，测试一下音色效果。", text, audio, model_name,
+                        "apg", 16, 4.0, 1024,
+                        "auto", 50, 50, 24000, "wav", True, False, 30.0,
+                    )
+                    return result
                 except Exception as e:
                     raise gr.Error(str(e))
 
             role_a_test_btn.click(fn=test_role_voice,
-                inputs=[role_a_mode, role_a_seed, role_a_audio, role_a_text, batch_model],
+                inputs=[role_a_audio, role_a_text, batch_model],
                 outputs=role_a_test_out)
             role_b_test_btn.click(fn=test_role_voice,
-                inputs=[role_b_mode, role_b_seed, role_b_audio, role_b_text, batch_model],
+                inputs=[role_b_audio, role_b_text, batch_model],
                 outputs=role_b_test_out)
             role_c_test_btn.click(fn=test_role_voice,
-                inputs=[role_c_mode, role_c_seed, role_c_audio, role_c_text, batch_model],
+                inputs=[role_c_audio, role_c_text, batch_model],
                 outputs=role_c_test_out)
 
         # ═══ Tab 4: SSML 编辑器 ═══
@@ -1200,15 +1166,15 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
 
     # 多角色对话
     def batch_wrapper(dialog_text, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, trim, agc, md,
-                      ra_mode, ra_seed, ra_audio, ra_text,
-                      rb_mode, rb_seed, rb_audio, rb_text,
-                      rc_mode, rc_seed, rc_audio, rc_text):
+                      ra_audio, ra_text,
+                      rb_audio, rb_text,
+                      rc_audio, rc_text):
         try:
             (audio, info) = generate_dialog(
                 dialog_text, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, trim, agc, md,
-                ra_mode, ra_seed, ra_audio, ra_text,
-                rb_mode, rb_seed, rb_audio, rb_text,
-                rc_mode, rc_seed, rc_audio, rc_text,
+                ra_audio, ra_text,
+                rb_audio, rb_text,
+                rc_audio, rc_text,
             )
             return audio, f"✅ 对话生成完成\n{info}"
         except Exception as e:
@@ -1218,9 +1184,9 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
         fn=batch_wrapper,
         inputs=[batch_text, batch_model, guidance_method, nfe, guidance_strength, seed, randomize_seed,
                 number_mode, speed, volume, target_sr, do_trim, do_agc, max_duration,
-                role_a_mode, role_a_seed, role_a_audio, role_a_text,
-                role_b_mode, role_b_seed, role_b_audio, role_b_text,
-                role_c_mode, role_c_seed, role_c_audio, role_c_text],
+                role_a_audio, role_a_text,
+                role_b_audio, role_b_text,
+                role_c_audio, role_c_text],
         outputs=[batch_output, batch_info],
     )
 
