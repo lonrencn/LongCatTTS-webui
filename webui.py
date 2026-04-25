@@ -1023,12 +1023,12 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
 
         # ═══ Tab 3: 多角色对话 ═══
         with gr.Tab("🎭 多角色对话"):
-            gr.Markdown("### 角色定义\n定义最多3个角色的音色，可选随机音色（用seed控制）或克隆音色（上传参考音频）。")
+            gr.Markdown("### 角色定义\n定义最多3个角色的音色。\n\n⚠️ **LongCat 不支持通过seed控制音色**，纯TTS模式每次生成的音色都是随机的。\n**建议用克隆模式**：上传3-5秒参考音频来定义角色音色，这样同一角色在所有台词中音色一致。")
             with gr.Row():
                 # 角色 A
                 with gr.Column(scale=1):
                     gr.Markdown("**🅰️ 角色 A**")
-                    role_a_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_a_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
                     role_a_seed = gr.Number(label="Seed", value=100, precision=0, visible=True)
                     role_a_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_a_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
@@ -1037,7 +1037,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 # 角色 B
                 with gr.Column(scale=1):
                     gr.Markdown("**🅱️ 角色 B**")
-                    role_b_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_b_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
                     role_b_seed = gr.Number(label="Seed", value=200, precision=0, visible=True)
                     role_b_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_b_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
@@ -1046,7 +1046,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 # 角色 C
                 with gr.Column(scale=1):
                     gr.Markdown("**🅲 角色 C**")
-                    role_c_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_c_mode = gr.Radio(label="音色来源", choices=["随机", "克隆"], value="克隆")
                     role_c_seed = gr.Number(label="Seed", value=300, precision=0, visible=True)
                     role_c_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_c_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
