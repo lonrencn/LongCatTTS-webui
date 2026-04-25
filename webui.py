@@ -465,9 +465,11 @@ def generate_tts_core(
     if prompt_audio_wav is not None:
         gen_kwargs["prompt_audio"] = prompt_audio_wav
 
-        # Recalculate duration for voice cloning
+        # Recalculate duration for voice cloning (matching official inference.py)
         _, prompt_dur = model.encode_prompt_audio(prompt_audio_wav)
         prompt_time = prompt_dur * full_hop / sr
+        # 减去 prompt 占用的时间
+        dur_sec = approx_duration_from_text(text, max_duration=max_duration_sec - prompt_time)
         if prompt_text:
             approx_pd = approx_duration_from_text(prompt_text, max_duration=max_duration)
             ratio = np.clip(prompt_time / max(approx_pd, 0.1), 1.0, 1.5)
@@ -593,8 +595,8 @@ def generate_voice_clone(
     audio_np = audio_np.astype(np.float32)
     if np.abs(audio_np).max() > 1.0:
         audio_np = audio_np / np.abs(audio_np).max()
-    if input_sr != 24000:  # Model default SR, will use actual model SR
-        pass  # We'll resample after getting model SR
+    if input_sr != 24000:
+        pass  # Will resample after getting model SR below
 
     prompt_wav = torch.from_numpy(audio_np).unsqueeze(0).unsqueeze(0)
 
@@ -939,7 +941,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
             result = generate_voice_clone(text, pt, pa, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, af, trim, agc, md)
             return result
         except Exception as e:
-            raise gr.Error(str(e))
+            raise gr.Error(str(e))"
 
     vc_btn.click(fn=get_seed_value, inputs=[randomize_seed, seed], outputs=seed, queue=False).then(
         fn=vc_wrapper,
