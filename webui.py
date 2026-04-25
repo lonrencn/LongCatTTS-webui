@@ -1033,7 +1033,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     role_a_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_a_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
                     role_a_test_btn = gr.Button("🔊 试听A", size="sm")
-                    role_a_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+                    role_a_test_out = gr.Audio(label="试听", type="numpy")
                 # 角色 B
                 with gr.Column(scale=1):
                     gr.Markdown("**🅱️ 角色 B**")
@@ -1042,7 +1042,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     role_b_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_b_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
                     role_b_test_btn = gr.Button("🔊 试听B", size="sm")
-                    role_b_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+                    role_b_test_out = gr.Audio(label="试听", type="numpy")
                 # 角色 C
                 with gr.Column(scale=1):
                     gr.Markdown("**🅲 角色 C**")
@@ -1051,7 +1051,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     role_c_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
                     role_c_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
                     role_c_test_btn = gr.Button("🔊 试听C", size="sm")
-                    role_c_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+                    role_c_test_out = gr.Audio(label="试听", type="numpy")
 
             gr.Markdown("### 对话输入\n用 `[A]` `[B]` `[C]` 标记每句台词的角色，每行一句。无标记默认为A。")
             batch_text = gr.Textbox(
