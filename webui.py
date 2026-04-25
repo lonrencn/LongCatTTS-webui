@@ -1205,7 +1205,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                       rc_mode, rc_seed, rc_audio, rc_text):
         try:
             (audio, info) = generate_dialog(
-                dialog_text, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, 'wav', trim, agc, md,
+                dialog_text, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, trim, agc, md,
                 ra_mode, ra_seed, ra_audio, ra_text,
                 rb_mode, rb_seed, rb_audio, rb_text,
                 rc_mode, rc_seed, rc_audio, rc_text,
