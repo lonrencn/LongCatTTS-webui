@@ -703,24 +703,23 @@ def get_gpu_info():
         return "❌ 无可用 GPU"
     try:
         allocated = torch.cuda.memory_allocated() / 1024**3
-        reserved = torch.cuda.memory_reserved() / 1024**3
         total = torch.cuda.get_device_properties(0).total_mem / 1024**3
         util = 0
         try:
             import subprocess
-            r = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
+            r = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
                              capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
-                util = int(r.stdout.strip())
+                parts = r.stdout.strip().split(',')
+                util = int(parts[0])
+                used_mb = int(parts[1])
+                total_mb = int(parts[2])
+                return f"🎮 {used_mb}MB/{total_mb}MB ({used_mb/total_mb*100:.0f}%) | GPU: {util}%"
         except Exception:
             pass
-        free = total - allocated
-        bar_len = 20
-        filled = int(allocated / total * bar_len)
-        bar = '█' * filled + '░' * (bar_len - filled)
-        return f"GPU: {allocated:.1f}G / {total:.1f}G [{bar}] {allocated/total*100:.0f}% | 利用率: {util}%"
+        return f"🎮 {allocated:.1f}G/{total:.1f}G ({allocated/total*100:.0f}%) | GPU: {util}%"
     except Exception as e:
-        return f"GPU 信息获取失败: {e}"
+        return f"❌ {e}"
 
 
 def clear_vram():
@@ -849,7 +848,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     tts_btn = gr.Button("🎤 生成", variant="primary", size="lg")
 
                 with gr.Row():
-                    tts_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    tts_gpu = gr.Textbox(interactive=False, show_label=False, container=False)
                     tts_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                     tts_clear_btn.click(clear_vram, outputs=tts_gpu)
 
@@ -899,7 +898,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     vc_btn = gr.Button("🎭 克隆生成", variant="primary", size="lg")
 
                 with gr.Row():
-                    vc_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    vc_gpu = gr.Textbox(interactive=False, show_label=False, container=False)
                     vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                     vc_clear_btn.click(clear_vram, outputs=vc_gpu)
 
@@ -927,7 +926,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     batch_btn = gr.Button("📦 批量生成", variant="primary")
                 with gr.Row():
-                    batch_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    batch_gpu = gr.Textbox(interactive=False, show_label=False, container=False)
                     batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                     batch_clear_btn.click(clear_vram, outputs=batch_gpu)
                 with gr.Column():
@@ -955,7 +954,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 ssml_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
             ssml_btn = gr.Button("📝 SSML 合成", variant="primary")
             with gr.Row():
-                ssml_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                ssml_gpu = gr.Textbox(interactive=False, show_label=False, container=False)
                 ssml_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                 ssml_clear_btn.click(clear_vram, outputs=ssml_gpu)
             ssml_output = gr.Audio(label="生成结果", type="numpy")
