@@ -702,24 +702,21 @@ def get_gpu_info():
     if not torch.cuda.is_available():
         return "❌ 无可用 GPU"
     try:
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        total = torch.cuda.get_device_properties(0).total_mem / 1024**3
-        util = 0
-        try:
-            import subprocess
-            r = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
-                             capture_output=True, text=True, timeout=5)
-            if r.returncode == 0:
-                parts = r.stdout.strip().split(',')
-                util = int(parts[0])
-                used_mb = int(parts[1])
-                total_mb = int(parts[2])
-                return f"🎮 {used_mb}MB/{total_mb}MB ({used_mb/total_mb*100:.0f}%) | GPU: {util}%"
-        except Exception:
-            pass
-        return f"🎮 {allocated:.1f}G/{total:.1f}G ({allocated/total*100:.0f}%) | GPU: {util}%"
+        import subprocess
+        r = subprocess.run(
+            ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0:
+            parts = [p.strip() for p in r.stdout.strip().split(',')]
+            util = parts[0]
+            used = int(parts[1])
+            total = int(parts[2])
+            pct = used / total * 100 if total > 0 else 0
+            return f"🎮 显存: {used}MB / {total}MB ({pct:.0f}%) | GPU利用率: {util}%"
+        return "🎮 nvidia-smi 不可用"
     except Exception as e:
-        return f"❌ {e}"
+        return f"🎮 {e}"
 
 
 def clear_vram():
@@ -1055,14 +1052,14 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     # GPU 状态定时刷新
     try:
         timer = gr.Timer(value=15)
-        for gpu_comp in [tts_gpu, vc_gpu, batch_gpu, ssml_gpu]:
-            timer.tick(fn=get_gpu_info, outputs=gpu_comp)
+        timer.tick(fn=get_gpu_info, outputs=tts_gpu)
+        timer.tick(fn=get_gpu_info, outputs=vc_gpu)
+        timer.tick(fn=get_gpu_info, outputs=batch_gpu)
+        timer.tick(fn=get_gpu_info, outputs=ssml_gpu)
     except Exception:
         pass
 
-    # 页面加载时初始化
-    demo.load(fn=lambda: (refresh_model_status(), get_gpu_info(), get_gpu_info(), get_gpu_info(), get_gpu_info()),
-              outputs=[model_status, tts_gpu, vc_gpu, batch_gpu, ssml_gpu])
+    demo.load(fn=refresh_model_status, outputs=model_status)
 
 
 if __name__ == "__main__":
