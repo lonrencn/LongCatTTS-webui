@@ -954,6 +954,8 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row():
                         tts_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
                     with gr.Row():
+                        tts_refresh_btn = gr.Button("🔄 GPU状态", size="sm")
+                        tts_refresh_btn.click(get_gpu_info, outputs=tts_gpu)
                         tts_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                         tts_clear_btn.click(clear_vram, outputs=tts_gpu)
 
@@ -1010,6 +1012,8 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row():
                         vc_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
                     with gr.Row():
+                        vc_refresh_btn = gr.Button("🔄 GPU状态", size="sm")
+                        vc_refresh_btn.click(get_gpu_info, outputs=vc_gpu)
                         vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                         vc_clear_btn.click(clear_vram, outputs=vc_gpu)
 
@@ -1050,8 +1054,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
             with gr.Row():
                 batch_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
             with gr.Row():
-                batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                batch_clear_btn.click(clear_vram, outputs=batch_gpu)
+                with gr.Row():
+                    batch_refresh_btn = gr.Button("🔄 GPU状态", size="sm")
+                    batch_refresh_btn.click(get_gpu_info, outputs=batch_gpu)
+                    batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                    batch_clear_btn.click(clear_vram, outputs=batch_gpu)
 
             # 试听按钮
             def test_role_voice(audio, text, model_name):
@@ -1108,8 +1115,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
             with gr.Row():
                 ssml_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
             with gr.Row():
-                ssml_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                ssml_clear_btn.click(clear_vram, outputs=ssml_gpu)
+                with gr.Row():
+                    ssml_refresh_btn = gr.Button("🔄 GPU状态", size="sm")
+                    ssml_refresh_btn.click(get_gpu_info, outputs=ssml_gpu)
+                    ssml_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                    ssml_clear_btn.click(clear_vram, outputs=ssml_gpu)
 
         # ═══ Tab 5: 模型管理 ═══
         with gr.Tab("🔧 模型管理"):
