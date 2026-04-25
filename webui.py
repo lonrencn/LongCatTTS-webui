@@ -1079,6 +1079,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                 inputs=[role_c_audio, role_c_text, batch_model],
                 outputs=role_c_test_out)
 
+            # 上传音频自动识别文本
+            role_a_audio.change(fn=transcribe_audio, inputs=[role_a_audio], outputs=[role_a_text])
+            role_b_audio.change(fn=transcribe_audio, inputs=[role_b_audio], outputs=[role_b_text])
+            role_c_audio.change(fn=transcribe_audio, inputs=[role_c_audio], outputs=[role_c_text])
+
         # ═══ Tab 4: SSML 编辑器 ═══
         with gr.Tab("📝 SSML 编辑器"):
             gr.Markdown(
