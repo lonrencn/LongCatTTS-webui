@@ -557,10 +557,14 @@ def generate_tts(
         text = auto_convert_numbers(text, number_mode)
 
     # 分段
+    seg_info = ""
     if do_segment:
         segments = segment_text(text)
+        if len(segments) > 1:
+            seg_info = f"📋 总字数: {sum(len(s) for s in segments)} | 分{len(segments)}段: " + ", ".join(f"{len(s)}字" for s in segments)
     else:
         segments = [text]
+        seg_info = f"📋 总字数: {len(text)} | 不分段"
 
     # 生成音频
     all_wav = []
@@ -597,7 +601,7 @@ def generate_tts(
         wav = librosa.resample(wav, orig_sr=sr, target_sr=target_sr)
         sr = target_sr
 
-    return (sr, wav)
+    return (sr, wav), seg_info
 
 
 def generate_voice_clone(
@@ -653,19 +657,31 @@ def generate_voice_clone(
     # 重采样参考音频到模型采样率
     if input_sr != model_sr:
         audio_np_resampled = librosa.resample(audio_np, orig_sr=input_sr, target_sr=model_sr)
-        prompt_wav = torch.from_numpy(audio_np_resampled).float().unsqueeze(0).unsqueeze(0)  # (1, 1, T) float32
+        prompt_wav = torch.from_numpy(audio_np_resampled).float().unsqueeze(0).unsqueeze(0)
 
-    sr, wav = generate_tts_core(
-        text=text,
-        model_name=model_name,
-        guidance_method=guidance_method,
-        nfe=nfe,
-        guidance_strength=guidance_strength,
-        seed=seed,
-        prompt_audio_wav=prompt_wav,
-        prompt_text=prompt_text,
-        max_duration_sec=max_duration,
-    )
+    # 克隆也支持分段
+    segments = segment_text(text)
+    if len(segments) > 1:
+        seg_info = f"📋 克隆分{len(segments)}段: " + ", ".join(f"{len(s)}字" for s in segments)
+    else:
+        seg_info = f"📋 总字数: {len(text)}"
+
+    all_wav = []
+    for seg in segments:
+        sr, wav = generate_tts_core(
+            text=seg,
+            model_name=model_name,
+            guidance_method=guidance_method,
+            nfe=nfe,
+            guidance_strength=guidance_strength,
+            seed=seed,
+            prompt_audio_wav=prompt_wav,
+            prompt_text=prompt_text,
+            max_duration_sec=max_duration,
+        )
+        all_wav.append(wav)
+
+    wav = np.concatenate(all_wav) if len(all_wav) > 1 else all_wav[0]
 
     # 后处理（克隆模式保持原始质量，不做语速调整）
     if do_trim:
@@ -675,7 +691,7 @@ def generate_voice_clone(
     wav = adjust_volume(wav, volume)
 
     # 克隆模式不重采样，保持模型原始采样率
-    return (sr, wav)
+    return (sr, wav), seg_info
 
 
 def generate_batch(
@@ -693,15 +709,17 @@ def generate_batch(
     do_agc: bool,
     max_duration: float,
 ):
-    """批量合成：每行一条文本"""
+    """多角色：每行一条文本，每条自动分段"""
     if not texts or not texts.strip():
         raise gr.Error("请输入要合成的文本（每行一条）")
 
     lines = [l.strip() for l in texts.strip().split('\n') if l.strip()]
-    results = []
+    all_info = []
+    all_wav = []
+    sr_out = None
     for i, line in enumerate(lines):
         try:
-            sr, wav = generate_tts(
+            (sr, wav), seg_info = generate_tts(
                 text=line,
                 model_name=model_name,
                 guidance_method=guidance_method,
@@ -712,7 +730,7 @@ def generate_batch(
                 enable_ssml=False,
                 do_fullwidth=True,
                 do_filter_symbols=True,
-                do_segment=False,
+                do_segment=True,
                 speed=speed,
                 volume=volume,
                 target_sr=target_sr,
@@ -721,15 +739,17 @@ def generate_batch(
                 do_agc=do_agc,
                 max_duration=max_duration,
             )
-            results.append((sr, wav))
+            all_wav.append(wav)
+            sr_out = sr
+            all_info.append(f"第{i+1}行: {seg_info}")
         except Exception as e:
-            results.append(None)
+            all_info.append(f"第{i+1}行: ❌ {e}")
 
-    # 返回最后一条作为预览
-    valid = [(sr, wav) for r in results if r is not None for sr, wav in [r]]
-    if valid:
-        return valid[-1]
-    raise gr.Error("批量生成全部失败")
+    if all_wav:
+        wav = np.concatenate(all_wav) if len(all_wav) > 1 else all_wav[0]
+        batch_info = '\n'.join(all_info)
+        return (sr_out, wav), batch_info
+    raise gr.Error("多角色生成全部失败")
 
 
 # ─── SSML Templates ───────────────────────────────────────────
@@ -802,7 +822,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     gr.Markdown("# 🐱 LongCat-AudioDiT TTS — 全功能语音合成")
     gr.Markdown(
         "基于 [LongCat-AudioDiT](https://github.com/meituan-longcat/LongCat-AudioDiT) 的语音合成与声音克隆。"
-        "支持 SSML、数字读法控制、语速/音量调节、批量合成等功能。"
+        "支持 SSML、数字读法控制、语速/音量调节、多角色等功能。"
     )
 
     # ── 全局高级设置（放在底部 Accordion）──
@@ -937,6 +957,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
 
                 with gr.Column():
                     vc_output = gr.Audio(label="生成结果", type="numpy")
+                    vc_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
                     gr.Markdown("### 使用说明\n"
                                 "1. 上传 3-15 秒参考音频\n"
                                 "2. 输入参考音频文字\n"
@@ -949,18 +970,18 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                         vc_clear_btn.click(clear_vram, outputs=vc_gpu)
 
-        # ═══ Tab 3: 批量合成 ═══
-        with gr.Tab("📦 批量合成"):
+        # ═══ Tab 3: 多角色 ═══
+        with gr.Tab("📦 多角色"):
             with gr.Row():
                 with gr.Column():
                     batch_text = gr.Textbox(
-                        label="批量文本（每行一条）",
+                        label="多角色文本（每行一条）",
                         lines=10,
                         placeholder="第一行文本\n第二行文本\n第三行文本...",
                     )
                     with gr.Row():
                         batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
-                    batch_btn = gr.Button("📦 批量生成", variant="primary")
+                    batch_btn = gr.Button("📦 多角色生成", variant="primary")
                 with gr.Column():
                     batch_output = gr.Audio(label="最后一条预览", type="numpy")
                     batch_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
@@ -1026,8 +1047,8 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     # TTS 合成
     def tts_wrapper(text, model, gm, nfe_val, gs, seed_val, rs, nm, ssml, fw, fs, seg, spd, vol, tsr, af, trim, agc, md):
         try:
-            result = generate_tts(text, model, gm, nfe_val, gs, seed_val, nm, ssml, fw, fs, seg, spd, vol, tsr, af, trim, agc, md)
-            return result, f"✅ 生成成功 | 模型: {model} | Seed: {seed_val}"
+            (audio, seg_info) = generate_tts(text, model, gm, nfe_val, gs, seed_val, nm, ssml, fw, fs, seg, spd, vol, tsr, af, trim, agc, md)
+            return audio, f"✅ 生成成功 | 模型: {model} | Seed: {seed_val}\n{seg_info}"
         except Exception as e:
             return None, f"❌ 错误: {str(e)}"
 
@@ -1042,8 +1063,8 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     # 声音克隆
     def vc_wrapper(text, pt, pa, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, af, trim, agc, md):
         try:
-            result = generate_voice_clone(text, pt, pa, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, af, trim, agc, md)
-            return result
+            (audio, seg_info) = generate_voice_clone(text, pt, pa, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, af, trim, agc, md)
+            return audio, f"✅ 克隆成功 | 模型: {model}\n{seg_info}"
         except Exception as e:
             raise gr.Error(str(e))
 
@@ -1052,15 +1073,15 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
         inputs=[vc_text, vc_prompt_text, vc_prompt_audio, vc_model,
                 guidance_method, nfe, guidance_strength, seed, randomize_seed,
                 number_mode, speed, volume, target_sr, audio_format, do_trim, do_agc, max_duration],
-        outputs=[vc_output],
+        outputs=[vc_output, vc_info],
     )
 
-    # 批量合成
+    # 多角色
     def batch_wrapper(texts, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, trim, agc, md):
         try:
-            result = generate_batch(texts, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, 'wav', trim, agc, md)
+            (audio, batch_info) = generate_batch(texts, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, 'wav', trim, agc, md)
             count = len([l for l in texts.strip().split('\n') if l.strip()])
-            return result, f"✅ 已生成 {count} 条音频（预览最后一条）"
+            return audio, f"✅ 已生成 {count} 条\n{batch_info}"
         except Exception as e:
             return None, f"❌ 错误: {str(e)}"
 
@@ -1074,11 +1095,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     # SSML 合成
     def ssml_wrapper(text, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, trim, agc, md):
         try:
-            result = generate_tts(
+            (audio, _) = generate_tts(
                 text, model, gm, nfe_val, gs, seed_val, nm, True, True, False, False,
                 spd, vol, tsr, 'wav', trim, agc, md,
             )
-            return result
+            return audio
         except Exception as e:
             raise gr.Error(str(e))
 
