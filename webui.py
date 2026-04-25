@@ -694,13 +694,13 @@ def generate_voice_clone(
     return (sr, wav), seg_info
 
 
-def generate_batch(
-    texts: str,
+def generate_dialog(
+    dialog_text: str,
     model_name: str,
     guidance_method: str,
     nfe: int,
     guidance_strength: float,
-    seed: int,
+    base_seed: int,
     number_mode: str,
     speed: int,
     volume: int,
@@ -708,48 +708,99 @@ def generate_batch(
     do_trim: bool,
     do_agc: bool,
     max_duration: float,
+    role_a_mode: str, role_a_seed, role_a_audio, role_a_prompt_text: str,
+    role_b_mode: str, role_b_seed, role_b_audio, role_b_prompt_text: str,
+    role_c_mode: str, role_c_seed, role_c_audio, role_c_prompt_text: str,
 ):
-    """多角色：每行一条文本，每条自动分段"""
-    if not texts or not texts.strip():
-        raise gr.Error("请输入要合成的文本（每行一条）")
+    """多角色对话生成"""
+    if not dialog_text or not dialog_text.strip():
+        raise gr.Error("请输入对话文本")
 
-    lines = [l.strip() for l in texts.strip().split('\n') if l.strip()]
-    all_info = []
+    # 解析对话：每行 [X]文本
+    lines = [l.strip() for l in dialog_text.strip().split('\n') if l.strip()]
+    parsed = []  # [(role, text), ...]
+    for line in lines:
+        m = re.match(r'\[([ABCabc])\]\s*(.*)', line)
+        if m:
+            parsed.append((m.group(1).upper(), m.group(2).strip()))
+        else:
+            parsed.append(('A', line))
+
+    if not parsed:
+        raise gr.Error("没有有效的对话内容")
+
+    # 角色配置
+    roles = {
+        'A': {'mode': role_a_mode, 'seed': int(role_a_seed) if role_a_seed else 100, 'audio': role_a_audio, 'text': role_a_prompt_text},
+        'B': {'mode': role_b_mode, 'seed': int(role_b_seed) if role_b_seed else 200, 'audio': role_b_audio, 'text': role_b_prompt_text},
+        'C': {'mode': role_c_mode, 'seed': int(role_c_seed) if role_c_seed else 300, 'audio': role_c_audio, 'text': role_c_prompt_text},
+    }
+
+    # 获取模型采样率
+    model, _ = get_model(model_name)
+    model_sr = model.config.sampling_rate
+
+    # 预处理克隆角色的参考音频
+    for role_id, role in roles.items():
+        if role['mode'] == '克隆' and role['audio'] is not None:
+            input_sr, audio_np = role['audio']
+            if audio_np.dtype != np.float32:
+                audio_np = audio_np.astype(np.float32) / np.iinfo(np.int16).max
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=-1)
+            peak = np.abs(audio_np).max()
+            if peak > 1.0:
+                audio_np = audio_np / peak
+            if input_sr != model_sr:
+                audio_np = librosa.resample(audio_np, orig_sr=input_sr, target_sr=model_sr)
+            role['prompt_wav'] = torch.from_numpy(audio_np).float().unsqueeze(0).unsqueeze(0)
+        else:
+            role['prompt_wav'] = None
+
+    # 逐句生成
     all_wav = []
-    sr_out = None
-    for i, line in enumerate(lines):
-        try:
-            (sr, wav), seg_info = generate_tts(
-                text=line,
-                model_name=model_name,
-                guidance_method=guidance_method,
-                nfe=nfe,
-                guidance_strength=guidance_strength,
-                seed=seed + i,
-                number_mode=number_mode,
-                enable_ssml=False,
-                do_fullwidth=True,
-                do_filter_symbols=True,
-                do_segment=True,
-                speed=speed,
-                volume=volume,
-                target_sr=target_sr,
-                audio_format='wav',
-                do_trim=do_trim,
-                do_agc=do_agc,
-                max_duration=max_duration,
-            )
-            all_wav.append(wav)
-            sr_out = sr
-            all_info.append(f"第{i+1}行: {seg_info}")
-        except Exception as e:
-            all_info.append(f"第{i+1}行: ❌ {e}")
+    info_lines = []
+    for i, (role_id, text) in enumerate(parsed):
+        if not text.strip():
+            continue
+        role = roles.get(role_id, roles['A'])
+        text_clean = auto_convert_numbers(preprocess_text(text), number_mode)
 
-    if all_wav:
-        wav = np.concatenate(all_wav) if len(all_wav) > 1 else all_wav[0]
-        batch_info = '\n'.join(all_info)
-        return (sr_out, wav), batch_info
-    raise gr.Error("多角色生成全部失败")
+        try:
+            if role['mode'] == '克隆' and role['prompt_wav'] is not None and role['text']:
+                sr, wav = generate_tts_core(
+                    text=text_clean,
+                    model_name=model_name,
+                    guidance_method='apg',
+                    nfe=nfe,
+                    guidance_strength=guidance_strength,
+                    seed=role['seed'],
+                    prompt_audio_wav=role['prompt_wav'],
+                    prompt_text=role['text'],
+                    max_duration_sec=max_duration,
+                )
+            else:
+                sr, wav = generate_tts_core(
+                    text=text_clean,
+                    model_name=model_name,
+                    guidance_method=guidance_method,
+                    nfe=nfe,
+                    guidance_strength=guidance_strength,
+                    seed=role['seed'],
+                    max_duration_sec=max_duration,
+                )
+            all_wav.append(wav)
+            mode_tag = "克隆" if role['mode'] == '克隆' else f"seed={role['seed']}"
+            info_lines.append(f"{role_id}: {text[:20]}{'...' if len(text)>20 else ''} ({mode_tag})")
+        except Exception as e:
+            info_lines.append(f"{role_id}: ❌ {e}")
+
+    if not all_wav:
+        raise gr.Error("对话生成失败")
+
+    wav = np.concatenate(all_wav) if len(all_wav) > 1 else all_wav[0]
+    info = f"📋 共{len(parsed)}句对话\n" + "\n".join(info_lines)
+    return (sr, wav), info
 
 
 # ─── SSML Templates ───────────────────────────────────────────
@@ -970,26 +1021,97 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                         vc_clear_btn.click(clear_vram, outputs=vc_gpu)
 
-        # ═══ Tab 3: 多角色 ═══
-        with gr.Tab("📦 多角色"):
+        # ═══ Tab 3: 多角色对话 ═══
+        with gr.Tab("🎭 多角色对话"):
+            gr.Markdown("### 角色定义\n定义最多3个角色的音色，可选随机音色（用seed控制）或克隆音色（上传参考音频）。")
             with gr.Row():
-                with gr.Column():
-                    batch_text = gr.Textbox(
-                        label="多角色文本（每行一条）",
-                        lines=10,
-                        placeholder="第一行文本\n第二行文本\n第三行文本...",
-                    )
-                    with gr.Row():
-                        batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
-                    batch_btn = gr.Button("📦 多角色生成", variant="primary")
-                with gr.Column():
-                    batch_output = gr.Audio(label="最后一条预览", type="numpy")
-                    batch_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
-                    with gr.Row():
-                        batch_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
-                    with gr.Row():
-                        batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                        batch_clear_btn.click(clear_vram, outputs=batch_gpu)
+                # 角色 A
+                with gr.Column(scale=1):
+                    gr.Markdown("**🅰️ 角色 A**")
+                    role_a_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_a_seed = gr.Number(label="Seed", value=100, precision=0, visible=True)
+                    role_a_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
+                    role_a_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_a_test_btn = gr.Button("🔊 试听A", size="sm")
+                    role_a_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+                # 角色 B
+                with gr.Column(scale=1):
+                    gr.Markdown("**🅱️ 角色 B**")
+                    role_b_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_b_seed = gr.Number(label="Seed", value=200, precision=0, visible=True)
+                    role_b_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
+                    role_b_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_b_test_btn = gr.Button("🔊 试听B", size="sm")
+                    role_b_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+                # 角色 C
+                with gr.Column(scale=1):
+                    gr.Markdown("**🅲 角色 C**")
+                    role_c_mode = gr.Radio(label="音色来源", choices=["随机(seed)", "克隆"], value="随机(seed)")
+                    role_c_seed = gr.Number(label="Seed", value=300, precision=0, visible=True)
+                    role_c_audio = gr.Audio(label="参考音频", type="numpy", visible=False)
+                    role_c_text = gr.Textbox(label="参考音频文本", visible=False, placeholder="参考音频对应文字...")
+                    role_c_test_btn = gr.Button("🔊 试听C", size="sm")
+                    role_c_test_out = gr.Audio(label="试听", type="numpy", visible=False)
+
+            gr.Markdown("### 对话输入\n用 `[A]` `[B]` `[C]` 标记每句台词的角色，每行一句。无标记默认为A。")
+            batch_text = gr.Textbox(
+                label="对话文本",
+                lines=10,
+                placeholder="[A]你好，今天天气真不错\n[B]是啊，我们去公园吧\n[A]好主意！\n[C]我也想去！\n[B]那我们出发吧",
+            )
+            with gr.Row():
+                batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
+            batch_btn = gr.Button("🎭 生成对话", variant="primary", size="lg")
+            batch_output = gr.Audio(label="对话结果", type="numpy")
+            batch_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
+            with gr.Row():
+                batch_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
+            with gr.Row():
+                batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                batch_clear_btn.click(clear_vram, outputs=batch_gpu)
+
+            # 角色模式切换
+            def toggle_role_mode(mode):
+                is_clone = mode == "克隆"
+                return gr.Number(visible=not is_clone), gr.Audio(visible=is_clone), gr.Textbox(visible=is_clone)
+            role_a_mode.change(toggle_role_mode, role_a_mode, [role_a_seed, role_a_audio, role_a_text])
+            role_b_mode.change(toggle_role_mode, role_b_mode, [role_b_seed, role_b_audio, role_b_text])
+            role_c_mode.change(toggle_role_mode, role_c_mode, [role_c_seed, role_c_audio, role_c_text])
+
+            # 试听按钮
+            def test_role_voice(mode, seed_val, audio, text, model_name):
+                try:
+                    if mode == "克隆":
+                        if audio is None:
+                            raise gr.Error("请上传参考音频")
+                        if not text or not text.strip():
+                            raise gr.Error("请输入参考音频文本")
+                        (result, _) = generate_voice_clone(
+                            "这是试听音频，测试一下音色效果。", text, audio, model_name,
+                            "apg", 16, 4.0, int(seed_val) if seed_val else 1024,
+                            "auto", 50, 50, 24000, "wav", True, False, 30.0,
+                        )
+                        return result
+                    else:
+                        (result, _) = generate_tts(
+                            "这是试听音频，测试一下音色效果。", model_name,
+                            "cfg", 16, 4.0, int(seed_val) if seed_val else 1024,
+                            "auto", False, True, True, False,
+                            50, 50, 24000, "wav", True, False, 30.0,
+                        )
+                        return result
+                except Exception as e:
+                    raise gr.Error(str(e))
+
+            role_a_test_btn.click(fn=test_role_voice,
+                inputs=[role_a_mode, role_a_seed, role_a_audio, role_a_text, batch_model],
+                outputs=role_a_test_out)
+            role_b_test_btn.click(fn=test_role_voice,
+                inputs=[role_b_mode, role_b_seed, role_b_audio, role_b_text, batch_model],
+                outputs=role_b_test_out)
+            role_c_test_btn.click(fn=test_role_voice,
+                inputs=[role_c_mode, role_c_seed, role_c_audio, role_c_text, batch_model],
+                outputs=role_c_test_out)
 
         # ═══ Tab 4: SSML 编辑器 ═══
         with gr.Tab("📝 SSML 编辑器"):
@@ -1076,19 +1198,29 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
         outputs=[vc_output, vc_info],
     )
 
-    # 多角色
-    def batch_wrapper(texts, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, trim, agc, md):
+    # 多角色对话
+    def batch_wrapper(dialog_text, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, trim, agc, md,
+                      ra_mode, ra_seed, ra_audio, ra_text,
+                      rb_mode, rb_seed, rb_audio, rb_text,
+                      rc_mode, rc_seed, rc_audio, rc_text):
         try:
-            (audio, batch_info) = generate_batch(texts, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, 'wav', trim, agc, md)
-            count = len([l for l in texts.strip().split('\n') if l.strip()])
-            return audio, f"✅ 已生成 {count} 条\n{batch_info}"
+            (audio, info) = generate_dialog(
+                dialog_text, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, 'wav', trim, agc, md,
+                ra_mode, ra_seed, ra_audio, ra_text,
+                rb_mode, rb_seed, rb_audio, rb_text,
+                rc_mode, rc_seed, rc_audio, rc_text,
+            )
+            return audio, f"✅ 对话生成完成\n{info}"
         except Exception as e:
             return None, f"❌ 错误: {str(e)}"
 
     batch_btn.click(fn=get_seed_value, inputs=[randomize_seed, seed], outputs=seed, queue=False).then(
         fn=batch_wrapper,
         inputs=[batch_text, batch_model, guidance_method, nfe, guidance_strength, seed, randomize_seed,
-                number_mode, speed, volume, target_sr, do_trim, do_agc, max_duration],
+                number_mode, speed, volume, target_sr, do_trim, do_agc, max_duration,
+                role_a_mode, role_a_seed, role_a_audio, role_a_text,
+                role_b_mode, role_b_seed, role_b_audio, role_b_text,
+                role_c_mode, role_c_seed, role_c_audio, role_c_text],
         outputs=[batch_output, batch_info],
     )
 
