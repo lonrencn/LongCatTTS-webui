@@ -695,6 +695,55 @@ def generate_batch(
 
 # ─── SSML Templates ───────────────────────────────────────────
 
+# ─── GPU Monitor ────────────────────────────────────────────
+
+def get_gpu_info():
+    """获取 GPU 显存和使用率信息"""
+    if not torch.cuda.is_available():
+        return "❌ 无可用 GPU"
+    try:
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        total = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        util = 0
+        try:
+            import subprocess
+            r = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
+                             capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                util = int(r.stdout.strip())
+        except Exception:
+            pass
+        free = total - allocated
+        bar_len = 20
+        filled = int(allocated / total * bar_len)
+        bar = '█' * filled + '░' * (bar_len - filled)
+        return f"GPU: {allocated:.1f}G / {total:.1f}G [{bar}] {allocated/total*100:.0f}% | 利用率: {util}%"
+    except Exception as e:
+        return f"GPU 信息获取失败: {e}"
+
+
+def clear_vram():
+    """清空显存（卸载所有缓存模型）"""
+    cleared = []
+    for name in list(MODEL_CACHE.keys()):
+        model, tokenizer = MODEL_CACHE.pop(name)
+        del model, tokenizer
+        cleared.append(name)
+    global _asr_model
+    if _asr_model is not None:
+        del _asr_model
+        _asr_model = None
+        cleared.append("SenseVoice ASR")
+    torch.cuda.empty_cache()
+    gc.collect()
+    if cleared:
+        return f"✅ 已卸载: {', '.join(cleared)}\n{get_gpu_info()}"
+    return "⚠️ 没有已加载的模型\n" + get_gpu_info()
+
+
+import gc
+
 SSML_TEMPLATES = {
     "数字逐字读": '<say-as interpret-as="digits">12345</say-as>',
     "数值读法": '<say-as interpret-as="cardinal">12345</say-as>',
@@ -790,7 +839,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row(visible=False) as ssml_row:
                         for name, tpl in SSML_TEMPLATES.items():
                             gr.Button(name, elem_classes="ssml-template-btn").click(
-                                lambda t=tpl, txt=tts_text: txt.value + t if hasattr(txt, 'value') else t,
+                                lambda t=tpl: t,
                                 outputs=tts_text,
                             )
                     enable_ssml.change(lambda v: gr.Row(visible=v), enable_ssml, ssml_row)
@@ -798,6 +847,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row():
                         tts_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     tts_btn = gr.Button("🎤 生成", variant="primary", size="lg")
+
+                with gr.Row():
+                    tts_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    tts_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                    tts_clear_btn.click(clear_vram, outputs=tts_gpu)
 
                 with gr.Column(scale=1):
                     tts_output = gr.Audio(label="生成结果", type="numpy")
@@ -844,6 +898,11 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         vc_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     vc_btn = gr.Button("🎭 克隆生成", variant="primary", size="lg")
 
+                with gr.Row():
+                    vc_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                    vc_clear_btn.click(clear_vram, outputs=vc_gpu)
+
                 with gr.Column():
                     vc_output = gr.Audio(label="生成结果", type="numpy")
                     gr.Markdown(
@@ -867,6 +926,10 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row():
                         batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     batch_btn = gr.Button("📦 批量生成", variant="primary")
+                with gr.Row():
+                    batch_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                    batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                    batch_clear_btn.click(clear_vram, outputs=batch_gpu)
                 with gr.Column():
                     batch_output = gr.Audio(label="最后一条预览", type="numpy")
                     batch_info = gr.Textbox(label="状态", interactive=False)
@@ -891,6 +954,10 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
             with gr.Row():
                 ssml_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
             ssml_btn = gr.Button("📝 SSML 合成", variant="primary")
+            with gr.Row():
+                ssml_gpu = gr.Textbox(label="GPU 状态", interactive=False, show_label=False, every=10)
+                ssml_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                ssml_clear_btn.click(clear_vram, outputs=ssml_gpu)
             ssml_output = gr.Audio(label="生成结果", type="numpy")
 
         # ═══ Tab 5: 模型管理 ═══
@@ -986,7 +1053,17 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     )
 
     # 页面加载时刷新模型状态
-    demo.load(refresh_model_status, outputs=model_status)
+    # GPU 状态定时刷新
+    try:
+        timer = gr.Timer(value=15)
+        for gpu_comp in [tts_gpu, vc_gpu, batch_gpu, ssml_gpu]:
+            timer.tick(fn=get_gpu_info, outputs=gpu_comp)
+    except Exception:
+        pass
+
+    # 页面加载时初始化
+    demo.load(fn=lambda: (refresh_model_status(), get_gpu_info(), get_gpu_info(), get_gpu_info(), get_gpu_info()),
+              outputs=[model_status, tts_gpu, vc_gpu, batch_gpu, ssml_gpu])
 
 
 if __name__ == "__main__":
