@@ -253,26 +253,54 @@ def preprocess_text(text: str, do_fullwidth: bool = True, do_filter_symbols: boo
     return text
 
 
-def segment_text(text: str, max_chars: int = 512) -> list:
-    """超长文本自动分段"""
+def segment_text(text: str, max_chars: int = 200) -> list:
+    """按标点分段，每段不超过 max_chars 字符
+
+    逻辑：按标点（中英文句号/问号/感叹号/逗号/分号/冒号/换行）切分，
+    合并短句直到接近 max_chars 时断开。
+    如果单个标点片段超过 max_chars，强制在 max_chars 处断开。
+    """
     if len(text) <= max_chars:
         return [text]
-    # 按句号/问号/感叹号分段
-    sentences = re.split(r'([。？！\.\?\!])', text)
+
+    # 按所有标点切分，保留标点
+    parts = re.split(r'([。！？，；：、\n\.\?\!\,\;\:])', text)
+
+    # 合并片段
     segments = []
     current = ''
-    for i in range(0, len(sentences) - 1, 2):
-        s = sentences[i] + (sentences[i + 1] if i + 1 < len(sentences) else '')
-        if len(current) + len(s) > max_chars:
-            if current:
-                segments.append(current)
-            current = s
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        # 如果下一个是标点，合并进来
+        if i + 1 < len(parts) and re.match(r'[。！？，；：、\n\.\?\!\,\;\:]', parts[i + 1]):
+            part += parts[i + 1]
+            i += 2
         else:
-            current += s
-    if len(sentences) % 2 == 1 and sentences[-1]:
-        current += sentences[-1]
-    if current:
-        segments.append(current)
+            i += 1
+
+        if not part.strip():
+            continue
+
+        if len(current) + len(part) <= max_chars:
+            current += part
+        else:
+            # 当前段已满，保存
+            if current.strip():
+                segments.append(current.strip())
+            # 新片段本身就超长，强制截断
+            if len(part) > max_chars:
+                for j in range(0, len(part), max_chars):
+                    chunk = part[j:j + max_chars]
+                    if chunk.strip():
+                        segments.append(chunk.strip())
+                current = ''
+            else:
+                current = part
+
+    if current.strip():
+        segments.append(current.strip())
+
     return segments if segments else [text]
 
 
