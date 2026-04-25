@@ -755,6 +755,7 @@ CSS = """
 #main-tabs { max-width: 1200px; margin: auto; }
 .speaker-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 4px; }
 .ssml-template-btn { font-size: 12px; padding: 4px 8px; }
+textarea[data-testid="textbox"] { min-height: 60px !important; }
 """
 
 with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft()) as demo:
@@ -851,7 +852,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
 
                 with gr.Column(scale=1):
                     tts_output = gr.Audio(label="生成结果", type="numpy")
-                    tts_info = gr.Textbox(label="状态", visible=True, interactive=False)
+                    tts_info = gr.Textbox(label="状态", visible=True, interactive=False, show_copy_button=True)
 
             gr.Examples(
                 examples=[
@@ -928,7 +929,7 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     batch_clear_btn.click(clear_vram, outputs=batch_gpu)
                 with gr.Column():
                     batch_output = gr.Audio(label="最后一条预览", type="numpy")
-                    batch_info = gr.Textbox(label="状态", interactive=False)
+                    batch_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
 
         # ═══ Tab 4: SSML 编辑器 ═══
         with gr.Tab("📝 SSML 编辑器"):
