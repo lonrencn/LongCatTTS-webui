@@ -407,6 +407,14 @@ def approx_duration_from_text(text: str, max_duration: float = 30.0) -> float:
 def get_model(model_name: str):
     if model_name in MODEL_CACHE:
         return MODEL_CACHE[model_name]
+    # 卸载其他已加载模型以释放显存
+    for old_name in list(MODEL_CACHE.keys()):
+        if old_name != model_name:
+            old_model, old_tokenizer = MODEL_CACHE.pop(old_name)
+            del old_model, old_tokenizer
+            torch.cuda.empty_cache()
+            import gc; gc.collect()
+            print(f"Unloaded model {old_name} to free VRAM")
     model_id = LOCAL_MODEL_MAP.get(model_name, f"meituan-longcat/LongCat-AudioDiT-{model_name}")
     print(f"Loading model {model_id} ...")
     model = AudioDiTModel.from_pretrained(model_id).to("cuda")
@@ -468,6 +476,7 @@ def generate_tts_core(
         # Recalculate duration for voice cloning (matching official inference.py)
         _, prompt_dur = model.encode_prompt_audio(prompt_audio_wav)
         prompt_time = prompt_dur * full_hop / sr
+        print(f"[CLONE] prompt_dur={prompt_dur}, prompt_time={prompt_time:.2f}s, prompt_wav shape={prompt_audio_wav.shape}, dtype={prompt_audio_wav.dtype}")
         # 减去 prompt 占用的时间
         dur_sec = approx_duration_from_text(text, max_duration=max_duration_sec - prompt_time)
         if prompt_text:
@@ -590,15 +599,21 @@ def generate_voice_clone(
 
     # 处理参考音频
     input_sr, audio_np = prompt_audio
+    # Gradio 返回可能是 int16 或 float32
+    if audio_np.dtype != np.float32:
+        audio_np = audio_np.astype(np.float32) / np.iinfo(np.int16).max
     if audio_np.ndim > 1:
         audio_np = audio_np.mean(axis=-1)
-    audio_np = audio_np.astype(np.float32)
-    if np.abs(audio_np).max() > 1.0:
-        audio_np = audio_np / np.abs(audio_np).max()
+    # 归一化到 [-1, 1]
+    peak = np.abs(audio_np).max()
+    if peak > 1.0:
+        audio_np = audio_np / peak
+    elif peak == 0:
+        raise gr.Error("参考音频为静音，请上传有效音频")
     if input_sr != 24000:
         pass  # Will resample after getting model SR below
 
-    prompt_wav = torch.from_numpy(audio_np).unsqueeze(0).unsqueeze(0)
+    prompt_wav = torch.from_numpy(audio_np).float().unsqueeze(0).unsqueeze(0)  # (1, 1, T) float32
 
     # 文本预处理
     text = auto_convert_numbers(preprocess_text(text), number_mode)
@@ -610,7 +625,7 @@ def generate_voice_clone(
     # 重采样参考音频到模型采样率
     if input_sr != model_sr:
         audio_np_resampled = librosa.resample(audio_np, orig_sr=input_sr, target_sr=model_sr)
-        prompt_wav = torch.from_numpy(audio_np_resampled).unsqueeze(0).unsqueeze(0)
+        prompt_wav = torch.from_numpy(audio_np_resampled).float().unsqueeze(0).unsqueeze(0)  # (1, 1, T) float32
 
     sr, wav = generate_tts_core(
         text=text,
