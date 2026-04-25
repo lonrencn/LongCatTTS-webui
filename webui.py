@@ -937,9 +937,9 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
     def vc_wrapper(text, pt, pa, model, gm, nfe_val, gs, seed_val, rs, nm, spd, vol, tsr, af, trim, agc, md):
         try:
             result = generate_voice_clone(text, pt, pa, model, gm, nfe_val, gs, seed_val, nm, spd, vol, tsr, af, trim, agc, md)
-            return result, f"✅ 克隆成功 | 模型: {model}"
+            return result
         except Exception as e:
-            return None, f"❌ 错误: {str(e)}"
+            raise gr.Error(str(e))
 
     vc_btn.click(fn=get_seed_value, inputs=[randomize_seed, seed], outputs=seed, queue=False).then(
         fn=vc_wrapper,
