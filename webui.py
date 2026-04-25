@@ -756,6 +756,7 @@ CSS = """
 .speaker-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 4px; }
 .ssml-template-btn { font-size: 12px; padding: 4px 8px; }
 textarea[data-testid="textbox"] { min-height: 60px !important; }
+.gpu-bar { background: #1a1a2e; color: #0f0; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 13px; width: 100%; }
 """
 
 with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft()) as demo:
@@ -845,14 +846,14 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         tts_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     tts_btn = gr.Button("🎤 生成", variant="primary", size="lg")
 
-                with gr.Row():
-                    tts_gpu = gr.Markdown(value="🎮 加载中...")
-                    tts_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                    tts_clear_btn.click(clear_vram, outputs=tts_gpu)
-
                 with gr.Column(scale=1):
                     tts_output = gr.Audio(label="生成结果", type="numpy")
                     tts_info = gr.Textbox(label="状态", visible=True, interactive=False, show_copy_button=True)
+                    with gr.Row():
+                        tts_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
+                    with gr.Row():
+                        tts_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                        tts_clear_btn.click(clear_vram, outputs=tts_gpu)
 
             gr.Examples(
                 examples=[
@@ -895,21 +896,18 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                         vc_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     vc_btn = gr.Button("🎭 克隆生成", variant="primary", size="lg")
 
-                with gr.Row():
-                    vc_gpu = gr.Markdown(value="🎮 加载中...")
-                    vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                    vc_clear_btn.click(clear_vram, outputs=vc_gpu)
-
                 with gr.Column():
                     vc_output = gr.Audio(label="生成结果", type="numpy")
-                    gr.Markdown(
-                        "### 使用说明\n"
-                        "1. 上传一段 3-15 秒的参考音频\n"
-                        "2. 输入参考音频对应的文字\n"
-                        "3. 输入想要合成的文本\n"
-                        "4. 建议：APG引导 + 3.5B模型效果最佳\n"
-                        "5. 参考音频越清晰，克隆效果越好"
-                    )
+                    gr.Markdown("### 使用说明\n"
+                                "1. 上传 3-15 秒参考音频\n"
+                                "2. 输入参考音频文字\n"
+                                "3. 输入合成文本\n"
+                                "4. 建议 APG + 3.5B 效果最佳")
+                    with gr.Row():
+                        vc_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
+                    with gr.Row():
+                        vc_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                        vc_clear_btn.click(clear_vram, outputs=vc_gpu)
 
         # ═══ Tab 3: 批量合成 ═══
         with gr.Tab("📦 批量合成"):
@@ -923,13 +921,14 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
                     with gr.Row():
                         batch_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
                     batch_btn = gr.Button("📦 批量生成", variant="primary")
-                with gr.Row():
-                    batch_gpu = gr.Markdown(value="🎮 加载中...")
-                    batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
-                    batch_clear_btn.click(clear_vram, outputs=batch_gpu)
                 with gr.Column():
                     batch_output = gr.Audio(label="最后一条预览", type="numpy")
                     batch_info = gr.Textbox(label="状态", interactive=False, show_copy_button=True)
+                    with gr.Row():
+                        batch_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
+                    with gr.Row():
+                        batch_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
+                        batch_clear_btn.click(clear_vram, outputs=batch_gpu)
 
         # ═══ Tab 4: SSML 编辑器 ═══
         with gr.Tab("📝 SSML 编辑器"):
@@ -951,11 +950,12 @@ with gr.Blocks(title="🐱 LongCat-AudioDiT TTS", css=CSS, theme=gr.themes.Soft(
             with gr.Row():
                 ssml_model = gr.Radio(label="模型", choices=["1B", "3.5B"], value="1B")
             ssml_btn = gr.Button("📝 SSML 合成", variant="primary")
+            ssml_output = gr.Audio(label="生成结果", type="numpy")
             with gr.Row():
-                ssml_gpu = gr.Markdown(value="🎮 加载中...")
+                ssml_gpu = gr.Markdown(value="🎮 加载中...", elem_classes="gpu-bar")
+            with gr.Row():
                 ssml_clear_btn = gr.Button("🗑️ 清空显存", size="sm")
                 ssml_clear_btn.click(clear_vram, outputs=ssml_gpu)
-            ssml_output = gr.Audio(label="生成结果", type="numpy")
 
         # ═══ Tab 5: 模型管理 ═══
         with gr.Tab("🔧 模型管理"):
